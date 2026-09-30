@@ -217,10 +217,10 @@ app.get('/products', async (req, res) => {
     </div>
     <p>Sesión de <strong>${escapeHtml(req.session.user.username)}</strong></p>
     <div style="overflow-x:auto"><table>
-      <thead><tr><th>ID</th><th>Producto</th><th>Precio S/</th>
+      <thead><tr><th>N.º</th><th>Producto</th><th>Precio S/</th>
         <th>Stock</th><th>Acciones</th></tr></thead>
-      <tbody>${rows.map(p => `<tr>
-        <td>${p.id}</td><td>${escapeHtml(p.name)}</td>
+      <tbody>${rows.map((p, index) => `<tr>
+        <td>${index + 1}</td><td>${escapeHtml(p.name)}</td>
         <td>${escapeHtml(p.price)}</td><td>${p.stock}</td>
         <td><div class="actions">
           <a class="button" href="/products/${p.id}/edit">Editar</a>
