@@ -4,6 +4,7 @@ const PgStore = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
 const { randomBytes, scrypt, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
+const path = require('node:path');
 const os = require('node:os');
 
 const deriveKey = promisify(scrypt);
@@ -24,40 +25,25 @@ function escapeHtml(value) {
   })[c]);
 }
 
-function page(title, content) {
+function page(title, content, { req, login = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)} | Lab 07</title>
-<style>
-*{box-sizing:border-box}
-body{font-family:system-ui,sans-serif;background:#eef2f6;color:#172337;
-margin:0;padding:32px 16px}
-main{max-width:1000px;margin:auto;background:white;padding:28px;
-border-radius:16px;box-shadow:0 8px 30px #17233712}
-header{border-bottom:1px solid #dde4ed;margin-bottom:24px;padding-bottom:16px}
-h1{margin:0 0 8px} h2{font-size:20px}
-small{color:#54657b} label{display:block;margin:12px 0}
-input{display:block;width:100%;padding:10px;margin-top:6px;
-border:1px solid #bbc8d8;border-radius:6px}
-button,a.button{background:#1749b5;color:white;border:0;border-radius:6px;
-padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-block}
-button.danger{background:#b42335}
-table{width:100%;border-collapse:collapse;margin:18px 0}
-th,td{text-align:left;padding:12px;border-bottom:1px solid #dde4ed}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
-.actions form{margin:0}
-.notice{color:#b42335}
-footer{margin-top:24px;color:#54657b}
-</style>
+<link rel="stylesheet" href="/assets/styles.css">
+<script src="/assets/app.js" defer></script>
 </head>
-<body><main>
-<header><h1>Gestión de productos</h1>
-<small>Laboratorio 07 · LOGIN + CRUD · Ortiz</small></header>
+<body class="${login ? 'login-page' : 'dashboard-page'}">
+<main class="shell ${login ? 'login-shell' : ''}">
+${login ? '' : `<header class="topbar">
+  <div class="brand"><span class="brand-mark">L</span><div><span class="brand-name">Lab 07</span><span class="brand-subtitle">Gestión de productos</span></div></div>
+  ${req?.session?.user ? `<div class="account"><span>Sesión de <strong>${escapeHtml(req.session.user.username)}</strong></span>
+    <form method="post" action="/logout">${csrfField(req)}<button class="button button-quiet" type="submit">Cerrar sesión</button></form></div>` : ''}
+</header>`}
 ${content}
-<footer>Servidor que respondió: <strong>${escapeHtml(serverName)}</strong></footer>
+<footer class="site-footer"><span>Laboratorio 07 · Ortiz</span><span>Servidor que respondió: <strong>${escapeHtml(serverName)}</strong></span></footer>
 </main></body></html>`;
 }
 
@@ -82,6 +68,8 @@ app.get('/health', async (req, res) => {
     res.status(503).json({ status: 'unavailable' });
   }
 });
+
+app.use('/assets', express.static(path.join(__dirname, 'public')));
 
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
 app.use(session({
@@ -119,19 +107,24 @@ app.get('/', (req, res) => {
 app.get('/login', (req, res) => {
   if (req.session.user) return res.redirect('/products');
   res.send(page('Iniciar sesión', `
-    <h2>Iniciar sesión</h2>
-    ${req.query.error ? '<p class="notice">Usuario o contraseña incorrectos.</p>' : ''}
-    <form method="post" action="/login">
+    <section class="login-card" aria-labelledby="login-title">
+      <div class="login-emblem" aria-hidden="true">L</div>
+      <p class="eyebrow">Lab 07 · Ortiz</p>
+      <h1 id="login-title">Gestión de productos</h1>
+      <p class="intro">Ingresa para administrar el catálogo del laboratorio.</p>
+    ${req.query.error ? '<p class="alert alert-error" role="alert">Usuario o contraseña incorrectos. Inténtalo de nuevo.</p>' : ''}
+    <form class="form-stack" method="post" action="/login">
       ${csrfField(req)}
-      <label>Usuario
-        <input name="username" autocomplete="username" required maxlength="80">
+      <label for="username">Usuario
+        <input id="username" name="username" autocomplete="username" required maxlength="80" autofocus>
       </label>
-      <label>Contraseña
-        <input type="password" name="password"
+      <label for="password">Contraseña</label>
+      <div class="password-field"><input id="password" type="password" name="password"
           autocomplete="current-password" required maxlength="256">
-      </label>
-      <button>Ingresar</button>
-    </form>`));
+        <button class="password-toggle" type="button" aria-controls="password" aria-label="Mostrar contraseña" aria-pressed="false">Mostrar</button>
+      </div>
+      <button class="button button-primary button-full" type="submit">Ingresar</button>
+    </form></section>`, { login: true }));
 });
 
 app.post('/login', async (req, res, next) => {
@@ -167,25 +160,28 @@ app.post('/logout', requireLogin, (req, res, next) => {
 function productForm(req, product = {}) {
   const editing = product.id !== undefined;
   return `
-    <h2>${editing ? 'Editar producto' : 'Crear producto'}</h2>
-    <form method="post"
+    <section class="content-card form-card">
+    <div class="section-heading"><div><p class="eyebrow">Catálogo / ${editing ? 'Editar' : 'Nuevo'}</p>
+    <h1>${editing ? 'Editar producto' : 'Crear producto'}</h1>
+    <p class="section-description">${editing ? 'Actualiza la información del producto.' : 'Completa los datos para agregar un producto al catálogo.'}</p></div></div>
+    <form class="form-stack" method="post"
       action="${editing ? `/products/${product.id}/edit` : '/products'}">
       ${csrfField(req)}
-      <label>Nombre
-        <input name="name" required maxlength="120"
+      <label for="name">Nombre del producto
+        <input id="name" name="name" required maxlength="120"
           value="${escapeHtml(product.name || '')}">
       </label>
-      <label>Precio en soles
-        <input type="number" name="price" min="0" max="999999.99"
+      <div class="form-grid"><label for="price">Precio en soles (S/)
+        <input id="price" type="number" name="price" min="0" max="999999.99"
           step="0.01" required value="${escapeHtml(product.price ?? '')}">
       </label>
-      <label>Stock
-        <input type="number" name="stock" min="0" max="1000000"
+      <label for="stock">Unidades en stock
+        <input id="stock" type="number" name="stock" min="0" max="1000000"
           step="1" required value="${escapeHtml(product.stock ?? '')}">
-      </label>
-      <button>Guardar</button>
-      <a href="/products">Volver</a>
-    </form>`;
+      </label></div>
+      <div class="form-actions"><button class="button button-primary" type="submit">Guardar producto</button>
+      <a class="button button-secondary" href="/products">Cancelar</a></div>
+    </form></section>`;
 }
 
 function productValues(req) {
@@ -208,32 +204,40 @@ app.use('/products', requireLogin);
 
 app.get('/products', async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM products ORDER BY id');
+  const stockTotal = rows.reduce((sum, product) => sum + Number(product.stock), 0);
+  const flash = req.session.flash;
+  delete req.session.flash;
   res.send(page('Productos', `
-    <div class="actions">
-      <a class="button" href="/products/new">Crear producto</a>
-      <form method="post" action="/logout">
-        ${csrfField(req)}<button>Cerrar sesión</button>
-      </form>
-    </div>
-    <p>Sesión de <strong>${escapeHtml(req.session.user.username)}</strong></p>
-    <div style="overflow-x:auto"><table>
-      <thead><tr><th>N.º</th><th>Producto</th><th>Precio S/</th>
-        <th>Stock</th><th>Acciones</th></tr></thead>
+    <section class="page-heading"><div><p class="eyebrow">Panel de control</p><h1>Productos</h1>
+      <p class="section-description">Administra tu catálogo y mantén el inventario al día.</p></div>
+      <a class="button button-primary" href="/products/new"><span aria-hidden="true">＋</span> Crear producto</a></section>
+    ${flash ? `<p class="alert alert-success" role="status">${escapeHtml(flash)}</p>` : ''}
+    <section class="metrics" aria-label="Resumen del inventario">
+      <div class="metric"><span class="metric-label">Productos registrados</span><strong>${rows.length}</strong><span class="metric-note">En el catálogo</span></div>
+      <div class="metric"><span class="metric-label">Unidades en stock</span><strong>${stockTotal}</strong><span class="metric-note">Disponibles en total</span></div>
+    </section>
+    <section class="content-card"><div class="section-heading"><div><h2>Inventario</h2>
+      <p class="section-description">Consulta y actualiza los productos registrados.</p></div>
+      <span class="count-badge">${rows.length} ${rows.length === 1 ? 'producto' : 'productos'}</span></div>
+    ${rows.length ? `<div class="table-scroll"><table>
+      <thead><tr><th scope="col">N.º</th><th scope="col">Producto</th><th scope="col">Precio</th>
+        <th scope="col">Stock</th><th scope="col">Acciones</th></tr></thead>
       <tbody>${rows.map((p, index) => `<tr>
-        <td>${index + 1}</td><td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.price)}</td><td>${p.stock}</td>
-        <td><div class="actions">
-          <a class="button" href="/products/${p.id}/edit">Editar</a>
-          <form method="post" action="/products/${p.id}/delete">
-            ${csrfField(req)}<button class="danger">Eliminar</button>
+        <td class="row-number">${index + 1}</td><td class="product-name">${escapeHtml(p.name)}</td>
+        <td>S/ ${escapeHtml(p.price)}</td><td><span class="stock-badge">${p.stock} unidades</span></td>
+        <td><div class="row-actions">
+          <a class="button button-edit" href="/products/${p.id}/edit">Editar</a>
+          <form method="post" action="/products/${p.id}/delete" data-confirm-delete>
+            ${csrfField(req)}<button class="button button-delete" type="submit">Eliminar</button>
           </form>
-        </div></td></tr>`).join('') ||
-        '<tr><td colspan="5">Todavía no hay productos.</td></tr>'}
-      </tbody></table></div>`));
+        </div></td></tr>`).join('')}
+      </tbody></table></div>` : `<div class="empty-state"><div class="empty-icon" aria-hidden="true">▤</div>
+        <h3>Aún no hay productos</h3><p>Empieza agregando el primer producto al catálogo.</p>
+        <a class="button button-primary" href="/products/new">Crear producto</a></div>`}</section>`, { req }));
 });
 
 app.get('/products/new', (req, res) => {
-  res.send(page('Crear producto', productForm(req)));
+  res.send(page('Crear producto', productForm(req), { req }));
 });
 
 app.param('id', (req, res, next, id) => {
@@ -251,6 +255,7 @@ app.post('/products', async (req, res) => {
   await pool.query(
     'INSERT INTO products (name, price, stock) VALUES ($1,$2,$3)', values
   );
+  req.session.flash = 'Producto creado correctamente.';
   res.redirect('/products');
 });
 
@@ -259,7 +264,7 @@ app.get('/products/:id/edit', async (req, res) => {
     'SELECT * FROM products WHERE id=$1', [req.params.id]
   );
   if (!rows[0]) return res.sendStatus(404);
-  res.send(page('Editar producto', productForm(req, rows[0])));
+  res.send(page('Editar producto', productForm(req, rows[0]), { req }));
 });
 
 app.post('/products/:id/edit', async (req, res) => {
@@ -271,6 +276,7 @@ app.post('/products/:id/edit', async (req, res) => {
     [...values, req.params.id]
   );
   if (!result.rowCount) return res.sendStatus(404);
+  req.session.flash = 'Producto actualizado correctamente.';
   res.redirect('/products');
 });
 
@@ -279,6 +285,7 @@ app.post('/products/:id/delete', async (req, res) => {
     'DELETE FROM products WHERE id=$1', [req.params.id]
   );
   if (!result.rowCount) return res.sendStatus(404);
+  req.session.flash = 'Producto eliminado correctamente.';
   res.redirect('/products');
 });
 
